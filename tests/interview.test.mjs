@@ -124,3 +124,57 @@ test('unsupported models and incomplete AI answers do not silently fall back',as
   r=await connections.POST(request('/api/connections','POST',{...payload,model:'gpt-6-astra'}));assert.equal(r.status,502);assert.ok(!(await r.text()).includes('잘린 답변'));assert.equal(requests,1);
  }finally{globalThis.fetch=original;}
 });
+
+
+test('Gemini and Claude use their own authenticated endpoints and preserve multi-turn roles',async()=>{
+ const original=globalThis.fetch;
+ try{
+  for(const provider of ['gemini','claude']){
+   for(const model of models.modelsForProvider(provider)){
+    const seen=[],fake=provider==='gemini'?'AIza-unit-test-not-a-real-key':'sk-ant-unit-test-not-a-real-key';
+    globalThis.fetch=async(url,init)=>{seen.push({url,init,body:JSON.parse(init.body)});return provider==='gemini'?Response.json({candidates:[{finishReason:'STOP',content:{parts:[{thought:true,text:'내부 사고'},{text:'사용자를 관찰하는 가상의 경험이에요.'}]}}]}):Response.json({stop_reason:'end_turn',content:[{type:'thinking',thinking:'내부 사고'},{type:'text',text:'사용자를 관찰하는 가상의 경험이에요.'}]});};
+    const check=await connections.POST(request('/api/connections','POST',{provider,apiKey:fake,model,consent:true}));assert.equal(check.status,200);assert.ok(!(await check.text()).includes(fake));
+    const reply=await conversations.POST(request('/api/interview','POST',{jobId:'robot',purpose:prep.purpose,question:'이어서 경험을 들려주세요.',history:[{question:'누구와 일하나요?',answer:'동료와 함께해요.'}],connection:{provider,apiKey:fake,model,teacherPreview:true}}));
+    assert.equal(reply.status,200);const data=await reply.json();assert.equal(data.answer,'사용자를 관찰하는 가상의 경험이에요.');assert.equal(data.source,'ai');
+    assert.equal(seen.length,2);const {url,init,body}=seen[1];assert.ok(!url.includes(fake));assert.ok(!JSON.stringify(body).includes(fake));assert.equal(init.redirect,'error');assert.equal(init.cache,'no-store');
+    if(provider==='gemini'){
+     assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent');assert.equal(init.headers['x-goog-api-key'],fake);assert.ok(!init.headers.Authorization);assert.ok(!init.headers['x-api-key']);
+     assert.deepEqual(body.contents.map(item=>item.role),['user','model','user']);assert.equal(body.contents.at(-1).parts[0].text,'이어서 경험을 들려주세요.');assert.match(body.systemInstruction.parts[0].text,/로봇공학자/);assert.equal(body.generationConfig.thinkingConfig.includeThoughts,false);
+    }else{
+     assert.equal(url,'https://api.anthropic.com/v1/messages');assert.equal(init.headers['x-api-key'],fake);assert.equal(init.headers['anthropic-version'],'2023-06-01');assert.ok(!init.headers.Authorization);assert.ok(!init.headers['x-goog-api-key']);
+     assert.equal(body.model,model);assert.deepEqual(body.messages.map(item=>item.role),['user','assistant','user']);assert.equal(body.messages.at(-1).content,'이어서 경험을 들려주세요.');assert.match(body.system,/로봇공학자/);assert.equal(body.thinking.type,'disabled');assert.ok(!('store' in body));
+    }
+   }
+  }
+ }finally{globalThis.fetch=original;}
+});
+
+test('provider-model mismatches are rejected before any external key transmission',async()=>{
+ const original=globalThis.fetch;let count=0;
+ try{
+  globalThis.fetch=async()=>{count++;throw Error('No external request expected');};
+  for(const [provider,model] of [['gemini','gpt-5.6-sol'],['claude','gemini-3.8-flash'],['openai','claude-sonnet-5']]){
+   const r=await connections.POST(request('/api/connections','POST',{provider,apiKey:'fake-api-key',model,consent:true}));assert.equal(r.status,400);
+   const s=await conversations.POST(request('/api/interview','POST',{jobId:'robot',purpose:prep.purpose,question:'어떤 일을 하나요?',history:[],connection:{provider,model,apiKey:'fake-api-key',teacherPreview:true}}));assert.equal(s.status,400);
+  }
+  assert.equal(count,0);
+ }finally{globalThis.fetch=original;}
+});
+
+test('new providers redact upstream errors and reject incomplete or blocked output without fallback',async()=>{
+ const original=globalThis.fetch,fake='test-key-must-never-appear';
+ try{
+  for(const provider of ['gemini','claude']){
+   const model=models.AI_PROVIDERS[provider].defaultModel;
+   const payload={jobId:'robot',purpose:prep.purpose,question:'어떤 일을 하나요?',history:[],connection:{provider,model,apiKey:fake,teacherPreview:true}};
+   for(const status of [400,401,403,429,503]){
+    let count=0;globalThis.fetch=async()=>{count++;return Response.json({error:{message:fake}},{status});};
+    const r=await conversations.POST(request('/api/interview','POST',payload));assert.equal(r.status,status===429?429:status===503?502:400);assert.ok(!(await r.text()).includes(fake));assert.equal(count,1);
+   }
+   for(const blocked of [false,true]){
+    globalThis.fetch=async()=>provider==='gemini'?Response.json(blocked?{promptFeedback:{blockReason:'SAFETY'}}:{candidates:[{finishReason:'MAX_TOKENS',content:{parts:[{text:'잘린 답변'}]}}]}):Response.json({stop_reason:blocked?'refusal':'max_tokens',content:[{type:'text',text:'잘린 답변'}]});
+    const r=await conversations.POST(request('/api/interview','POST',payload));assert.equal(r.status,blocked?422:502);assert.ok(!(await r.text()).includes('잘린 답변'));
+   }
+  }
+ }finally{globalThis.fetch=original;}
+});
