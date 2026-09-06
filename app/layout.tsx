@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./enhancements.css";
+import "./experience.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://jobdam-class.vercel.app"),
@@ -25,4 +26,5 @@ export default function RootLayout({
     </html>
   );
 }
+
 
