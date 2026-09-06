@@ -1,0 +1,12 @@
+.git
+.private
+.env*
+tests
+scripts
+*.tsbuildinfo
+node_modules
+.next
+README.md
+START-HERE.md
+VERIFICATION.md
+
