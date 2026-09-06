@@ -30,6 +30,7 @@ const interview=await import(moduleUrl(resolve(root,'lib/interview.ts')));
 const routes=await import(moduleUrl(resolve(root,'app/api/portfolios/route.ts')));
 const conversations=await import(moduleUrl(resolve(root,'app/api/interview/route.ts')));
 const connections=await import(moduleUrl(resolve(root,'app/api/connections/route.ts')));
+const models=await import(moduleUrl(resolve(root,'lib/ai-models.ts')));
 const career=await import(moduleUrl(resolve(root,'lib/career.ts')));
 const schema=await import(moduleUrl(resolve(root,'lib/portfolio-schema.ts')));
 const {JOBS,classify,demoReply,evaluate,portfolioText}=interview;
@@ -94,4 +95,32 @@ test('completed unsaved reports survive draft serialization without API connecti
  const draft=draftSchema.parse({selected:'robot',sessionId:portfolio.id,step:3,prep,turns,chosen:portfolio.selected,reflection:portfolio.reflection,result:portfolio,connection:{apiKey:'do-not-persist'}});
  assert.equal(draft.result.id,portfolio.id);
  assert.ok(!JSON.stringify(draft).includes('do-not-persist'));
+});
+
+
+test('current model choices reach Responses with compatible reasoning and sufficient output budgets',async()=>{
+ const original=globalThis.fetch,seen=[];
+ try{
+  globalThis.fetch=async(url,init)=>{const p=JSON.parse(init.body);seen.push(p);assert.equal(url,'https://api.openai.com/v1/responses');assert.equal(p.store,false);assert.match(p.safety_identifier,/^[a-f0-9]{64}$/);assert.notEqual(p.safety_identifier,teacherA);assert.ok(!('temperature' in p));return Response.json({status:'completed',output:[{type:'reasoning',summary:[]},{type:'message',content:[{type:'output_text',text:'가상의 직업 경험이에요.'}]}]});};
+  assert.equal(models.DEFAULT_AI_MODEL,'gpt-5.6-sol');
+  for(const model of ['gpt-6-astra','gpt-5.6-sol','gpt-5.6-terra','gpt-5.6-luna']){
+   const r=await connections.POST(request('/api/connections','POST',{provider:'openai',apiKey:'sk-unit-test-not-a-real-key',model,consent:true}));
+   assert.equal(r.status,200,model);assert.equal(seen.at(-1).model,model);
+   assert.equal(seen.at(-1).reasoning.effort,model==='gpt-6-astra'?'low':'none');
+   assert.ok(seen.at(-1).max_output_tokens>40);
+   const answer=await conversations.POST(request('/api/interview','POST',{jobId:'robot',purpose:prep.purpose,question:'함께 일하는 경험을 들려주세요.',history:[],connection:{apiKey:'sk-unit-test-not-a-real-key',model,teacherPreview:true}}));
+   assert.equal(answer.status,200,model);assert.equal((await answer.json()).answer,'가상의 직업 경험이에요.');
+   assert.equal(seen.at(-1).model,model);assert.ok(seen.at(-1).max_output_tokens>700);
+  }
+ }finally{globalThis.fetch=original;}
+});
+
+test('unsupported models and incomplete AI answers do not silently fall back',async()=>{
+ const original=globalThis.fetch;let requests=0;
+ try{
+  globalThis.fetch=async()=>{requests++;return Response.json({status:'incomplete',incomplete_details:{reason:'max_output_tokens'},output:[{content:[{type:'output_text',text:'잘린 답변'}]}]});};
+  const payload={provider:'openai',apiKey:'sk-unit-test-not-a-real-key',model:'unverified-model',consent:true};
+  let r=await connections.POST(request('/api/connections','POST',payload));assert.equal(r.status,400);assert.equal(requests,0);
+  r=await connections.POST(request('/api/connections','POST',{...payload,model:'gpt-6-astra'}));assert.equal(r.status,502);assert.ok(!(await r.text()).includes('잘린 답변'));assert.equal(requests,1);
+ }finally{globalThis.fetch=original;}
 });

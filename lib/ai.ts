@@ -1,11 +1,14 @@
 import {AppError,externalError} from './server';
 import type {Job} from './interview';
+import {createHash} from 'node:crypto';
+import {modelResponseOptions,type AIModel} from './ai-models';
 type Message={role:'user'|'assistant';content:string};
-export async function generate(apiKey:string,model:string,instructions:string,input:Message[],test=false){
- let r:Response;try{r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},cache:'no-store',redirect:'error',signal:AbortSignal.timeout(35000),body:JSON.stringify({model,instructions,input,store:false,max_output_tokens:test?40:700})});}catch{throw new AppError(502,'AI 연결이 지연되고 있어요. 대화는 전송 완료되지 않았으니 잠시 후 다시 시도해 주세요.');}
+export async function generate(apiKey:string,model:AIModel,instructions:string,input:Message[],test=false,teacherId?:string){
+ const safetyIdentifier=teacherId?createHash('sha256').update('jobdam-teacher:'+teacherId).digest('hex'):undefined;
+ let r:Response;try{r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},cache:'no-store',redirect:'error',signal:AbortSignal.timeout(35000),body:JSON.stringify({model,instructions,input,store:false,...modelResponseOptions(model,test),...(safetyIdentifier?{safety_identifier:safetyIdentifier}:{})})});}catch{throw new AppError(502,'AI 연결 응답을 제시간에 확인하지 못했어요. 잠시 후 다시 시도하거나 설정에서 다른 모델을 선택해 주세요.');}
  if(!r.ok)externalError(r.status,'OpenAI');
  const data=await r.json() as {status?:string;output?:{type?:string;content?:{type?:string;text?:string;refusal?:string}[]}[]};
- if(data.status&&data.status!=='completed')throw new AppError(502,'AI가 답변을 끝내지 못했어요. 질문을 조금 짧게 바꿔 주세요.');
+ if(data.status&&data.status!=='completed')throw new AppError(502,'AI가 답변을 끝내지 못했어요. 질문을 짧게 바꾸거나 설정에서 다른 모델을 선택해 주세요.');
  const answer=(data.output||[]).flatMap(o=>o.content||[]).filter(c=>c.type==='output_text').map(c=>c.text||'').join('\n').trim();
  if(!answer)throw new AppError(422,'이 질문에는 AI 답변을 제공하기 어려워요. 직업의 일이나 경험에 관해 다시 물어봐 주세요.');
  return answer.slice(0,6000);

@@ -11,6 +11,6 @@ export async function POST(request:Request){try{const id=await owner(request),p=
  if(/죽고 싶|자해|자살|때리고 싶|죽이는 방법/.test(p.question))return json({answer:'안전이 걱정되는 상황이라면 가까운 선생님이나 믿을 수 있는 어른에게 지금 알려 주세요. 위험한 방법은 안내하지 않아요. 당장 위험할 때에는 혼자 있지 말고 긴급 도움을 요청하세요.',source:'scenario',notice:'안전 안내를 우선 표시했어요.'});
  if(/성적|등급|합격선|커트라인|어느.*학교|어떤.*대학교|연봉|월급/.test(p.question))return json({answer:'구체적인 학교·학과는 진로 자료실에서 커리어넷 공식 자료를 찾아봐 주세요. 합격선은 지원 연도·학교·전형에 따라 달라, 지금 확인된 자료 없이 점수를 말할 수 없어요. 현재의 성적만으로 꿈을 단정하지 말고 여러 경로를 함께 살펴봐요.',source:'scenario',notice:'확인되지 않은 입시 정보는 생성하지 않고 자료실로 안내해요.'});
  const input=p.history.flatMap(t=>[{role:'user' as const,content:t.question},{role:'assistant' as const,content:t.answer}]);input.push({role:'user',content:p.question});
- const answer=await generate(p.connection.apiKey,p.connection.model,interviewInstructions(job),input);return json({answer,source:'ai'});
+ const answer=await generate(p.connection.apiKey,p.connection.model,interviewInstructions(job),input,false,id);return json({answer,source:'ai'});
  }catch(e){return fail(e);}}
 
