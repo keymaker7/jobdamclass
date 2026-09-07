@@ -13,6 +13,17 @@ export const JOBS: Job[] = [
   {id:'webtoon',name:'웹툰 작가',emoji:'🎨',category:'예술·콘텐츠',color:'mint',hook:'상상 속 친구들을 세상 밖으로',tags:['그림','스토리','관찰'],work:'이야기와 인물을 만들고 컷을 구성해 그림으로 표현해요. 독자가 내용을 따라갈 수 있도록 장면의 순서와 대사를 다듬어요.',skill:'그림 실력과 함께 관찰력, 이야기 구성, 꾸준히 완성하는 습관이 도움이 돼요.',story:'반전이 있는 이야기를 그렸는데 친구가 인물의 마음을 이해하기 어렵다고 했어요. 제 머릿속 이야기가 그림에는 빠져 있었죠.',follow:'인물이 망설이는 표정과 짧은 장면을 추가했어요. 설명을 길게 쓰기보다 그림으로 마음을 보여 주는 방법을 고민했죠.',advice:'그림을 완벽하게 그리기 전에도 짧은 이야기를 끝내 보세요. 주변의 표정과 대화를 관찰하되 다른 사람의 사생활은 존중해요.',majors:['만화·애니메이션','웹툰','시각디자인'],pathways:['일반고 또는 예술·콘텐츠 관련 고교 → 작품 제작','관련 학과 진학 또는 창작 활동·작품 포트폴리오를 통한 진출'],activity:'오늘 있었던 작은 일을 시작·문제·해결이 있는 네 컷 만화로 표현하기',source:'https://www.career.go.kr/cloud/w/job/list'},
   {id:'space',name:'천문학자',emoji:'🔭',category:'과학·기술',color:'indigo',hook:'밤하늘에 숨은 질문을 찾아요',tags:['우주','관측','탐구'],work:'천체에서 온 빛과 관측 자료를 분석해 우주의 현상을 연구해요. 망원경뿐 아니라 수학, 물리, 컴퓨터를 함께 사용해요.',skill:'수학·물리의 이해, 자료 분석과 프로그래밍, 오래 탐구하는 끈기가 도움이 돼요.',story:'관측 자료에서 특별한 신호를 찾았다고 생각했지만 장비의 잡음일 수도 있었어요. 발견했다고 바로 발표할 수 없었죠.',follow:'다른 날과 다른 장비의 자료를 비교했어요. 기대한 결과보다 증거를 확인하는 태도가 중요하다는 걸 배웠어요.',advice:'모르는 것을 기록하고 근거를 찾아보세요. 태양은 맨눈이나 일반 망원경으로 직접 관찰하지 않아요.',majors:['천문학','천문우주학','물리학'],pathways:['여러 고교 경로에서 수학·과학 탐구 → 천문·물리 관련 학과','연구자를 목표로 한다면 대학원 등 추가 연구 교육 경로 탐색'],activity:'안전한 장소에서 달의 모양을 여러 날 관찰하고 날짜와 함께 기록하기',source:'https://www.career.go.kr/cloud/w/job/list'},
 ];
+// Gem 에서 해 온 면담은 앱의 8개 직업 밖일 수 있다(커리어넷 552개가 대상이므로).
+// 그때는 이름만 가진 임시 Job 을 만들어 결과지·보관함이 깨지지 않게 한다.
+export const EXTERNAL_PREFIX='external:';
+export function jobFor(jobId:string):Job{
+  const found=JOBS.find(x=>x.id===jobId);
+  if(found)return found;
+  const name=jobId.startsWith(EXTERNAL_PREFIX)?jobId.slice(EXTERNAL_PREFIX.length):'직업';
+  return {id:jobId,name,emoji:'💼',category:'전체',color:'blue',hook:'커리어넷 자료로 알아본 직업',
+    tags:[],work:'',skill:'',story:'',follow:'',advice:'',majors:[],pathways:[],activity:'',
+    source:'https://www.career.go.kr/cloud/w/job/list'};
+}
 export const CATEGORIES=['전체','과학·기술','사람·돌봄','예술·콘텐츠','생활·서비스'];
 export type Kind='fact'|'feeling'|'future'|'other';
 export const KIND_LABEL:Record<Kind,string>={fact:'사실 질문',feeling:'생각·느낌',future:'계획·조언',other:'대화'};
@@ -72,7 +83,7 @@ export function evaluate(p:Pick<Portfolio,'prep'|'turns'>):Evidence[] {
   ];
 }
 export function portfolioText(p:Portfolio,section:'all'|'report'|'career'='all'):string {
-  const j=JOBS.find(x=>x.id===p.jobId)!;
+  const j=jobFor(p.jobId);
   const report=[`꿈터뷰 | ${p.prep.nickname}의 진로 면담 포트폴리오`,`직업: ${j.name} · ${p.date}`,`면담 방식: 가상 직업인과의 텍스트 역할극 (${p.prep.mode==='practice'?'연습':'도전'})`,'※ 실제 직업인과의 면담이 아닙니다. 경험담은 학습용 상황입니다.','', '[1. 면담 준비]',`목적: ${p.prep.purpose}`,`사전 조사: ${p.prep.research}`,...p.prep.questions.filter(Boolean).map((q,i)=>`준비 질문 ${i+1}: ${q}`),'','[2. 내가 선택한 면담 기록]',...p.turns.filter(t=>p.selected.includes(t.id)).map((t,i)=>`${i+1}. 질문: ${t.question}\n답변 (${t.source==='ai'?'AI 역할극':'미리 작성된 상황'}): ${t.answer}`),'','[3. 나의 배움과 성찰]',`새롭게 알게 된 점: ${p.reflection.learned}`,`달라진 생각: ${p.reflection.changed}`,`다음 면담에서 실천할 점: ${p.reflection.next}`].join('\n');
   const career=['[진로 탐색 참고 자료]',`관심 직업: ${j.name}`,`하는 일: ${j.work}`,`관련 학과 분야: ${j.majors.join(', ')}`,`가능한 경로:\n${j.pathways.map(x=>'• '+x).join('\n')}`,`지금 해 볼 활동: ${j.activity}`,`출처 확인: ${j.source}`,'위 내용은 기초 탐색용입니다. 특정 학교의 입학 자격·합격선을 의미하지 않습니다. 학교명과 성적은 해당 연도 공식 모집요강을 별도로 확인하세요.'].join('\n');
   const feedback=['[면담 절차 피드백 · 문장 규칙에 따른 참고 결과]',...evaluate(p).map(e=>`${e.label}: ${{done:'스스로 확인',help:'도움받아 확인',missing:'다시 연습',na:'해당 없음'}[e.level]}\n근거: ${e.quote}\n다음 연습: ${e.tip}`),'※ 자동 피드백은 교사의 최종 평가가 아닙니다. 실제 경청 태도·표정·발음은 텍스트만으로 평가하지 않습니다.'].join('\n');
