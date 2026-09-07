@@ -28,4 +28,8 @@ export function clearGuestExperience(storage:TabStorage){
   clearGuestArchive(storage,mode);
   storage.removeItem('dream-interview-draft-public-'+mode+'-v1');
  }
+ // 공용 기기에서 '끝내기' 를 누르면 수업 코드와 기기 id 도 같이 지운다.
+ // 안 지우면 다음 아이가 앞 아이의 남은 횟수를 물려받는다.
+ storage.removeItem('jobdam-class');
+ storage.removeItem('jobdam-learner');
 }
