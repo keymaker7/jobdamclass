@@ -19,6 +19,16 @@ import {Progress} from '@/components/ui/progress';
 import {Toaster} from '@/components/ui/sonner';
 import {toast} from 'sonner';
 import {JOBS,CATEGORIES,KIND_LABEL,classify,demoReply,evaluate,portfolioText,type Job,type Preparation,type Portfolio,type Turn} from '@/lib/interview';
+// 아이별 사용 횟수를 세기 위한 기기 id. 이름이 아니라 임의의 값이고, 이 탭에만 남는다.
+function learnerId(){
+ try{
+  const saved=sessionStorage.getItem('jobdam-learner');
+  if(saved)return saved;
+  const fresh=crypto.randomUUID();
+  sessionStorage.setItem('jobdam-learner',fresh);
+  return fresh;
+ }catch{return crypto.randomUUID();}   // 저장이 막힌 브라우저면 매번 새로 — 반 전체 상한이 받아 준다
+}
 const initialPrep:Preparation={nickname:'',purpose:'',research:'',questions:['','',''],mode:'practice',record:true};
 const steps=['직업 만나기','면담 준비하기','이야기 나누기','포트폴리오'];
 type CareerItem={name:string;description:string;url:string;region?:string;id?:string};
@@ -37,11 +47,25 @@ export default function Studio({displayName,scope,mode='teacher'}:{displayName:s
  const status={career:!guest&&!!connection.careerKey,ai:!guest&&!!connection.aiKey&&connection.aiConsent};
  const [sessionExpired,setSessionExpired]=useState(false),[logoutOpen,setLogoutOpen]=useState(false),[logoutBusy,setLogoutBusy]=useState(false),[draftStatus,setDraftStatus]=useState('');
  const [copyText,setCopyText]=useState(''),[showAll,setShowAll]=useState(false),[sessionId,setSessionId]=useState(''),[restorable,setRestorable]=useState(false);
+ const [classCode,setClassCode]=useState('');
  const bottom=useRef<HTMLDivElement>(null),inputRef=useRef<HTMLTextAreaElement>(null),sending=useRef(false);
  const job=JOBS.find(j=>j.id===selected)||JOBS[0],feedback=evaluate({prep,turns}),asked=turns.filter(t=>t.kind!=='other');
  const matched=JOBS.filter(j=>(category==='전체'||j.category===category)&&`${j.name} ${j.tags.join(' ')} ${j.category}`.toLowerCase().includes(search.trim().toLowerCase()));
  const completed=feedback.filter(e=>e.level==='done'||e.level==='help').length;
  const ready=!!prep.nickname.trim()&&prep.purpose.trim().length>=8&&prep.research.trim().length>=8&&prep.questions.every(q=>q.trim().length>=5);
+ // 선생님이 나눠 준 주소(?class=코드)에서 수업 코드를 받아 이 탭에 둔다.
+ // 아이가 코드를 외우거나 입력할 일이 없고, 탭을 닫으면 같이 사라진다.
+ useEffect(()=>{if(!guest)return;
+  let code='';
+  try{
+   const fromUrl=new URLSearchParams(window.location.search).get('class')?.trim();
+   if(fromUrl){sessionStorage.setItem('jobdam-class',fromUrl);code=fromUrl;
+    window.history.replaceState({},'',window.location.pathname);}   // 주소창에서는 지운다
+   else code=sessionStorage.getItem('jobdam-class')||'';
+  }catch{}
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  setClassCode(code);
+ },[guest]);
  // Browser-only identity and storage hydration must run after SSR.
  // eslint-disable-next-line react-hooks/set-state-in-effect
  useEffect(()=>{setSessionId(crypto.randomUUID());try{setRestorable(!!sessionStorage.getItem(draftKey));}catch{setDraftStatus('이 브라우저에서는 임시 저장을 사용할 수 없어요.');}const expired=()=>setSessionExpired(true);window.addEventListener('jobdam:session-expired',expired);return()=>window.removeEventListener('jobdam:session-expired',expired);},[draftKey]);
@@ -66,7 +90,8 @@ export default function Studio({displayName,scope,mode='teacher'}:{displayName:s
  async function loadCollection(){setView('collection');setCollectionBusy(true);setCollectionError('');try{if(guest){setSaved(readGuestArchive(sessionStorage,guestMode));}else{const d=await api<{portfolios:Portfolio[]}>('/api/portfolios');setSaved(d.portfolios);}}catch(e){setCollectionError(e instanceof Error?e.message:'보관함을 불러오지 못했어요.');}finally{setCollectionBusy(false);}}
  function applyHint(text:string){setInput(text);setHinted(true);inputRef.current?.focus();}
  async function send(){if(!input.trim()||sending.current||turns.length>=30)return;const q=input.trim();sending.current=true;setBusy(true);const usedHint=hinted;
- try{const d:{answer:string;source:'scenario'|'ai';notice?:string}=guest?{answer:demoReply(job,q,turns.at(-1)?.answer||''),source:'scenario'}:await api<{answer:string;source:'scenario'|'ai';notice?:string}>('/api/interview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId:job.id,question:q,history:turns.slice(-20).map(t=>({question:t.question,answer:t.answer})),purpose:prep.purpose,...(status.ai?{connection:{provider:connection.aiProvider,apiKey:connection.aiKey,model:connection.model,teacherPreview:true}}:{})})});const c=classify(q,turns.at(-1)?.answer||'');setTurns(t=>[...t,{id:crypto.randomUUID(),question:q,answer:d.answer,...c,hinted:usedHint,source:d.source,note:d.notice}]);setInput('');setHinted(false);}catch(e){toast.error(e instanceof Error?e.message:'연결을 확인한 뒤 다시 보내 주세요.');}finally{setBusy(false);sending.current=false;inputRef.current?.focus();}}
+ try{const payload={jobId:job.id,question:q,history:turns.slice(-20).map(t=>({question:t.question,answer:t.answer})),purpose:prep.purpose};
+  const d:{answer:string;source:'scenario'|'ai';notice?:string}=guest?(classCode?await api<{answer:string;source:'scenario'|'ai';notice?:string}>('/api/interview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,classAccess:{code:classCode,learnerId:learnerId()}})}):{answer:demoReply(job,q,turns.at(-1)?.answer||''),source:'scenario'}):await api<{answer:string;source:'scenario'|'ai';notice?:string}>('/api/interview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,...(status.ai?{connection:{provider:connection.aiProvider,apiKey:connection.aiKey,model:connection.model,teacherPreview:true}}:{})})});const c=classify(q,turns.at(-1)?.answer||'');setTurns(t=>[...t,{id:crypto.randomUUID(),question:q,answer:d.answer,...c,hinted:usedHint,source:d.source,note:d.notice}]);setInput('');setHinted(false);}catch(e){toast.error(e instanceof Error?e.message:'연결을 확인한 뒤 다시 보내 주세요.');}finally{setBusy(false);sending.current=false;inputRef.current?.focus();}}
  function finishInterview(){setChosen((asked.length?asked:turns).slice(0,3).map(t=>t.id));setFinish(false);goStep(3);}
  function makeResult(){if(!chosen.length){toast.error('남기고 싶은 문답을 1개 이상 골라 주세요.');return;}if(Object.values(reflection).some(s=>s.trim().length<10)){toast.error('세 가지 성찰을 각각 10자 이상, 나만의 말로 적어 주세요.');return;}setResult({id:sessionId||crypto.randomUUID(),jobId:job.id,date:today(),prep,turns,selected:chosen,reflection});window.scrollTo({top:0,behavior:'smooth'});}
  async function save(){if(!result||saving)return;setSaving(true);try{if(guest){saveGuestPortfolio(sessionStorage,guestMode,result);}else{await api('/api/portfolios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(result)});}setSavedId(result.id);try{sessionStorage.removeItem(draftKey);}catch{}toast.success(guest?'이 탭에 보관했어요. 제출하려면 PDF 또는 텍스트로 내려받아 주세요.':'나의 포트폴리오에 보관했어요.');}catch(e){toast.error(e instanceof Error?e.message:'저장하지 못했어요. 내용은 그대로 있으니 복사로도 보관할 수 있어요.');}finally{setSaving(false);}}
