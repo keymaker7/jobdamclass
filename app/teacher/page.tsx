@@ -5,5 +5,5 @@ import Studio from '@/components/studio';
 export default async function Home(){
  const teacher=await sessionFromToken((await cookies()).get(cookieName())?.value);
  if(!teacher)redirect('/login');
- return <Studio displayName={teacher.displayName} scope={teacher.id}/>;
+ return <Studio displayName={teacher.displayName} scope={teacher.id} careerServerKey={!!process.env.CAREER_API_KEY?.trim()}/>;
 }
